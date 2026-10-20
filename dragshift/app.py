@@ -8,13 +8,13 @@ import time
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QDir, QObject, QPointF, QRunnable, Qt, QThreadPool, QTimer, QUrl, Signal
+from PySide6.QtCore import QObject, QPointF, QRunnable, Qt, QThreadPool, QTimer, QUrl, Signal
 from PySide6.QtGui import (QAction, QColor, QCursor, QDesktopServices, QGuiApplication, QIcon, QPainter,
                            QPixmap)
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
-from PySide6.QtWidgets import QApplication, QFileDialog, QMenu, QSystemTrayIcon, QWidget
+from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QWidget
 
-from . import __version__, convert, glass, imaging, report, tools
+from . import __version__, convert, glass, imaging, report, tools, video
 from .radial import Item, RadialMenu
 from .settings import Settings, SettingsWindow, WelcomeWindow, TRIGGERS
 from .toasts import ToastStack
@@ -47,6 +47,20 @@ FORMAT_HINTS = {"JPG": "Small, universal", "PNG": "Lossless · transparency", "W
 
 IMAGE_TOOLS = ["Compress", "Resize", "Crop", "Edit", "Annotate", "Redact", "Add BG", "Metadata"]
 PDF_TOOLS = ["Compress", "Split", "Rotate", "Protect", "Extract", "Metadata"]
+VIDEO_TOOLS = ["Trim", "Compress", "Resize", "Edit", "Mute", "Frame", "Metadata", "Datamosh", "Audio"]
+VIDEO_GLYPHS = {"Trim": "✂", "Mute": "♪", "Frame": "▣", "Datamosh": "≈", "Audio": "♫"}
+VIDEO_HINTS = {"Trim": "Choose in · out", "Compress": "Smaller MP4", "Resize": "Change dimensions",
+               "Edit": "Rotate · crop · speed · colour", "Mute": "Remove audio", "Frame": "Save a PNG frame",
+               "Metadata": "View · remove tags", "Datamosh": "Melt video A into B", "Audio": "Extract sound · any format"}
+AUDIO_TOOLS = ["Trim", "Edit", "Normalize", "Fade", "Compress", "Reverse", "Metadata"]
+AUDIO_HINTS = {"Trim": "Choose in · out", "Edit": "Volume · speed · channels", "Normalize": "Consistent loudness",
+               "Fade": "Smooth start · end", "Compress": "Smaller audio file", "Reverse": "Play backwards",
+               "Metadata": "View · remove tags"}
+FORMAT_HINTS.update({"MP4": "H.264 · universal", "MKV": "Matroska · H.264", "MOV": "QuickTime · H.264",
+                     "WEBM": "VP9 · web video", "AVI": "MPEG-4 · legacy", "MP3": "Audio only", "WAV": "Uncompressed audio"})
+FORMAT_HINTS.update({"FLAC": "Lossless audio", "M4A": "AAC · phones", "AAC": "Compact audio",
+                     "OGG": "Vorbis audio", "OPUS": "Small · speech & music", "AIFF": "Uncompressed audio",
+                     "ZIP": "Universal archive", "7Z": "High compression", "TAR": "Archive container"})
 
 
 # ---------------------------------------------------------------- background jobs
@@ -135,6 +149,7 @@ class DragShiftApp(QObject):
         self.settings.apply()
         self.pool = QThreadPool.globalInstance()
         self.windows: list[QWidget] = []
+        qapp.aboutToQuit.connect(self._cancel_processing)
         self.toasts = ToastStack()
         self.menu = RadialMenu(self.build_rings, self.describe)
         self.menu.activated.connect(self.run_item)
@@ -164,7 +179,6 @@ class DragShiftApp(QObject):
         self.act_enabled = QAction("Enabled", m, checkable=True, checked=True)
         self.act_enabled.toggled.connect(lambda on: setattr(self.watcher, "enabled", on))
         m.addAction(self.act_enabled)
-        m.addAction("Open a file…", self.open_dialog)
         m.addSeparator()
         m.addAction("Settings…", self.open_settings)
         m.addAction("How to use", self.show_welcome)
@@ -204,8 +218,7 @@ class DragShiftApp(QObject):
             if files:
                 self.queue_files(files)
             elif data.get("show"):
-                self.toasts.info("DragShift is already running",
-                                 f"Drag any file and press {self.trigger_label()}. It lives in the tray.")
+                self.show_ready()
             sock.disconnectFromServer()
             sock.deleteLater()
 
@@ -251,6 +264,19 @@ class DragShiftApp(QObject):
         elif cat == "pdf":
             names = PDF_TOOLS[:3] + (["Merge"] if len(same) > 1 else []) + PDF_TOOLS[3:]
             rings["Tools"] = [Item(n, GLYPHS[n], key=f"tool:{n}", hint=HINTS[n]) for n in names]
+        elif cat == "video":
+            for item in convert_items:
+                if item.label == "GIF":
+                    item.hint = "Animated · 12 fps"
+            rings["Tools"] = [Item(n, VIDEO_GLYPHS.get(n, GLYPHS.get(n, "")), key=f"tool:{n}",
+                                   hint=VIDEO_HINTS[n]) for n in VIDEO_TOOLS]
+        elif cat == "audio":
+            glyphs = {"Normalize": "≋", "Fade": "◢", "Reverse": "↶"}
+            rings["Tools"] = [Item(n, glyphs.get(n, VIDEO_GLYPHS.get(n, GLYPHS.get(n, ""))),
+                                    key=f"tool:{n}", hint=AUDIO_HINTS[n]) for n in AUDIO_TOOLS]
+        elif cat == "archive":
+            rings["Tools"] = [Item("Extract", "⇩", key="tool:Extract archive", hint="Unpack to a new folder"),
+                               Item("Contents", "ⓘ", key="tool:Contents", hint="View files inside")]
         return rings
 
     # ------------------------------------------------------------ actions
@@ -259,13 +285,37 @@ class DragShiftApp(QObject):
         paths = [p for p in paths if category(p) == cat]
         kind, name = item.key.split(":", 1)
         if kind == "convert":
-            if cat == "image" and name == "PDF" and len(paths) > 1:
+            if cat in ("video", "audio", "archive"):
+                self.submit(f"convert:{name}", paths,
+                            lambda: video.batch(paths, lambda p: convert.convert(p, cat, name)), f"Converting to {name}…")
+            elif cat == "image" and name == "PDF" and len(paths) > 1:
                 self.submit(f"convert:{name}", paths, lambda: convert.images_to_single_pdf(paths),
                             f"Combining {len(paths)} images…")
             else:
                 verb = f"Converting to {name}…"
                 self.submit(f"convert:{name}", paths,
                             lambda: [o for p in paths for o in convert.convert(p, cat, name)], verb)
+            return
+        if cat == "video":
+            if name == "Audio":
+                from .audio_tools import AudioToolWindow
+                self.open_window(AudioToolWindow(paths, self.notify, "Extract"))
+                return
+            from .video_tools import DatamoshWindow, VideoToolWindow
+            self.open_window(DatamoshWindow(paths, self.notify) if name == "Datamosh"
+                             else VideoToolWindow(paths, self.notify, name))
+            return
+        if cat == "audio":
+            from .audio_tools import AudioToolWindow
+            self.open_window(AudioToolWindow(paths, self.notify, name))
+            return
+        if cat == "archive":
+            from . import archives
+            if name == "Extract archive":
+                self.submit("tool:Extract archive", paths, lambda: video.batch(paths, archives.extract), "Extracting archives…")
+            elif name == "Contents":
+                from .archive_tools import ArchiveContentsWindow
+                self.open_window(ArchiveContentsWindow(paths[0], self.notify))
             return
         if cat == "pdf":
             if name == "Merge":
@@ -307,8 +357,19 @@ class DragShiftApp(QObject):
         else:
             w.show()
 
+    def _cancel_processing(self):
+        for window in self.windows:
+            if getattr(window, "busy", False) and hasattr(window, "job"):
+                window.job.control.cancel.set()
+
     def submit(self, action: str, srcs: list, fn, working: str = "Working…", extra: str = ""):
         """Run in the background. A spinner card appears only if it takes > 150 ms."""
+        if any(category(p) in ("video", "audio", "archive") for p in srcs):
+            from .video_tools import VideoProgressWindow
+            window = VideoProgressWindow(action, srcs, fn, lambda r: self.toasts.new().done(r), extra)
+            self.open_window(window)
+            window.start(self.pool)
+            return
         state = {"card": None, "finished": False}
         names = Path(srcs[0]).name if len(srcs) == 1 else f"{len(srcs)} files"
 
@@ -342,14 +403,18 @@ class DragShiftApp(QObject):
 
     # ------------------------------------------------------------ misc
     def _tray_click(self, reason):
-        # macOS: a click on the menu-bar icon shows the menu; Windows: click opens a file
         if not IS_MAC and reason in (QSystemTrayIcon.DoubleClick, QSystemTrayIcon.Trigger):
-            self.open_dialog()
+            self.tray_menu.popup(QCursor.pos())
 
-    def open_dialog(self):
-        files, _ = QFileDialog.getOpenFileNames(None, "Choose file(s) for DragShift", QDir.homePath())
+    def show_ready(self):
+        self.toasts.info("DragShift is running", f"Drag a file, then press {self.trigger_label()}.")
+
+    def startup(self, files, *, quiet=False):
+        """Stay in the tray until a file is dragged or explicitly handed over."""
         if files:
-            self.show_click_menu(files)
+            QTimer.singleShot(120, lambda: self.queue_files(files))
+        elif not quiet:
+            QTimer.singleShot(400, self.show_ready)
 
     def show_click_menu(self, files: list[str]):
         g = (QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()).availableGeometry()
@@ -456,6 +521,12 @@ def main(argv: list[str] | None = None) -> int:
     qapp.setQuitOnLastWindowClosed(False)
     qapp.setWindowIcon(make_icon())
 
+    if "--files-selftest" in argv:
+        from .file_check import selftest as file_selftest
+        return file_selftest()
+    if "--video-selftest" in argv:
+        from .video_check import selftest as video_selftest
+        return video_selftest()
     if "--selftest" in argv:
         return selftest()
     files = [os.path.abspath(a) for a in argv[1:] if not a.startswith("-") and os.path.exists(a)]
@@ -466,13 +537,7 @@ def main(argv: list[str] | None = None) -> int:
     qapp.file_opened.connect(lambda f: app.queue_files([f]))
     if qapp.early_files:
         app.queue_files(list(qapp.early_files))
-    if files:  # e.g. "Send to → DragShift" or drag onto the .exe
-        QTimer.singleShot(120, lambda: app.queue_files(files))
-    elif not app.settings.get("welcomed"):
-        QTimer.singleShot(300, app.show_welcome)
-    elif "--quiet" not in argv:
-        QTimer.singleShot(400, lambda: app.toasts.info(
-            "DragShift is running", f"Drag any file, then press {app.trigger_label()}."))
+    app.startup(files, quiet="--quiet" in argv)
     return qapp.exec()
 
 
