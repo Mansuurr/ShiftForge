@@ -1,13 +1,18 @@
 # PyInstaller spec. ONEFILE=1 -> portable single exe; otherwise a folder for the installer.
 import os
+import sys
+from pathlib import Path
 from PyInstaller.utils.hooks import collect_all
 
 onefile = os.environ.get("ONEFILE") == "1"
 heif_datas, heif_bins, heif_hidden = collect_all("pillow_heif")
+engine_names = {"ffmpeg.exe", "ffprobe.exe", "ffgac.exe", "ffedit.exe", "7z.exe", "7z.dll",
+                "FFmpeg-LICENSE.txt", "FFglitch-readme.txt", "7-Zip-License.txt"}
+engine_datas = [(str(p), "bin") for p in Path("bin").glob("*") if p.name in engine_names]
 
 a = Analysis(
     ["run.py"],
-    datas=[("dragshift/assets", "dragshift/assets")] + heif_datas,
+    datas=[("dragshift/assets", "dragshift/assets"), ("THIRD_PARTY.md", "."), ("LICENSE", ".")] + heif_datas + engine_datas,
     binaries=heif_bins,
     hiddenimports=["win32com.client", "PySide6.QtNetwork", "AppKit", "Quartz", "objc"] + heif_hidden,
     excludes=["tkinter", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.QtQml",
@@ -23,12 +28,16 @@ DROP = ("Qt6Quick", "Qt6Qml", "Qt6Pdf", "Qt6WebEngine", "Qt63D", "Qt6Multimedia"
         "Qt6WebChannel", "Qt6WebSockets", "Qt6Svg", "qtquick", "qml",
         "libgtk-3", "libgdk-3", "libqgtk3", "libatk-")
 a.binaries = [b for b in a.binaries if not any(d.lower() in b[0].lower() for d in DROP)]
+# Qt on current Windows imports the OS's unversioned ICU API. A Poppler
+# installation on PATH can trick the scanner into bundling an unrelated ICU 78
+# with suffixed exports, making QtCore fail to load with ERROR_PROC_NOT_FOUND.
+if sys.platform == "win32":
+    a.binaries = [b for b in a.binaries if Path(b[0]).name.lower() not in ("icuuc.dll", "icudt78.dll")]
 a.datas = [d for d in a.datas if "translations" not in d[0].replace("\\", "/")]
 
 pyz = PYZ(a.pure)
-import sys
 IS_MAC = sys.platform == "darwin"
-common = dict(name="DragShift", console=False, upx=False)
+common = dict(name="DragShift", console=os.environ.get("DS_CONSOLE") == "1", upx=False)
 IS_LINUX = sys.platform.startswith("linux")
 if IS_MAC:
     common.update(icon="dragshift/assets/dragshift.icns")
