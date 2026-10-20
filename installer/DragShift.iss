@@ -1,7 +1,11 @@
 ; Inno Setup script — per-user install, no admin rights needed.
 #define AppVersion GetEnv("DS_VERSION")
 #if AppVersion == ""
-  #define AppVersion "1.1.0"
+  #define AppVersion "1.1.0+files.3"
+#endif
+#define AppCompression GetEnv("DS_COMPRESSION")
+#if AppCompression == ""
+  #define AppCompression "lzma2/ultra64"
 #endif
 
 [Setup]
@@ -17,7 +21,7 @@ OutputDir=..\dist
 OutputBaseFilename=DragShift-Setup
 SetupIconFile=..\dragshift\assets\dragshift.ico
 UninstallDisplayIcon={app}\DragShift.exe
-Compression=lzma2/ultra64
+Compression={#AppCompression}
 SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
