@@ -1,6 +1,6 @@
 # DragShift — local file tools
 
-## Custom Windows build 1.1.0+files.3
+## Custom Windows build 1.1.0+files.4
 
 This local extension is based on [llamaboi55/DragShift](https://github.com/llamaboi55/DragShift), upstream commit `88abe0cf392b80ad2db805ef12b020c76a6cf458` retrieved on 2026-10-19. It is not an official upstream release. The custom Windows package adds video, audio, experimental Datamosh and archive workflows to the original Shift-drag radial menu, with neutral matte glass.
 
@@ -56,6 +56,13 @@ Normalization measures the processed signal, then applies FFmpeg's two-pass EBU 
 MP3 supports up to 320 kb/s. OGG uses Vorbis VBR quality 5. WAV/AIFF use 16-bit PCM; FLAC uses lossless compression. Bitrate controls apply to MP3, M4A/AAC and Opus. Opus output uses 48 kHz; explicitly incompatible sample rates are rejected. Automatic rate selection retains the source rate when the encoder supports it. Only the first audio track is exported; cover art, video, subtitles and chapters are excluded. Reverse buffers the selected audio in memory, so trim long material before reversing it.
 
 ## Archives, outputs and cancellation
+
+**Tools → Pack** creates one **ZIP** (default) or **7Z** archive from selected files and folders, including mixed file types and unsupported conversion extensions. Start dragging the selection, press Shift, switch to Tools with another Shift press, then drop on Pack and choose the archive format. Folders and unknown file types show the Pack tool directly. Moving the pointer over the hub never switches rings; click menus also accept deliberate hub clicks.
+
+Folder structure, empty folders and modification times are retained. Overlapping selections are included once. Conflicting top-level names and links/junctions are rejected with an explanation. Limits are 100,000 items and 20 GiB of source data. Packing first creates a cancellable temporary copy, so enough free space for that copy and the archive is required.
+
+The archive is saved beside the first remaining top-level selection, or in its parent's DragShift subfolder according to Settings. If that would place the result inside a selected folder, it is saved beside that folder instead. Existing results receive a numbered name. Choosing Pack for an existing archive puts that archive file into a new archive; Convert changes the format of its contents.
+
 
 Archive conversion uses the local 7-Zip engine. RAR is read-only; RAR creation and encrypted archives are not supported. Contents are inspected before extraction. Unsafe paths, links, special files and colliding names are rejected. Limits are 100,000 listed entries and 20 GiB of declared uncompressed data; extraction also checks free disk space and the actual extracted tree.
 
