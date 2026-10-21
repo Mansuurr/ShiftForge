@@ -148,7 +148,7 @@ def neutral_style():
 
 
 def neutral_tint():
-    return (251, 251, 250, .82)
+    return (23, 25, 24, .90) if theme.MODE == "dark" else (251, 251, 250, .82)
 
 
 class _LiquidSig(QObject):

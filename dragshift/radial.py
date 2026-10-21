@@ -35,6 +35,7 @@ R_OUT = 158         # outer radius of petals
 R_IN = 60           # inner radius of petals
 R_HUB = 50          # hub radius
 GAP_DEG = 3.2
+RING_LABELS = {"Convert": "Форматы", "Tools": "Инструменты", "Presets": "Пресеты"}
 
 
 def sector_path(c: QPointF, r0: float, r1: float, a0: float, a1: float) -> QPainterPath:
@@ -117,6 +118,7 @@ class RadialMenu(QWidget):
         self._serial = 0
         self.got_drag = False
         self.click_mode = False  # opened from tray/menu instead of a drag
+        self.preferred_ring: str | None = None
         self._t = 1.0            # pop-in animation 0..1
         self._swap = 1.0         # ring-swap animation 0..1
         self.spring: list[float] = []   # per-petal hover amount 0..1 (eased every frame)
@@ -131,7 +133,7 @@ class RadialMenu(QWidget):
         self.frame = QTimer(self, interval=16, timeout=self._tick)   # 60 fps springs
 
     # ------------------------------------------------------------ show / hide
-    def popup(self, pos: QPoint | None = None, paths: list[str] | None = None):
+    def popup(self, pos: QPoint | None = None, paths: list[str] | None = None, ring: str | None = None):
         pos = pos or QCursor.pos()
         tl = pos - QPoint(SIZE // 2, SIZE // 2)
         scr = QGuiApplication.screenAt(pos) or QGuiApplication.primaryScreen()
@@ -143,6 +145,7 @@ class RadialMenu(QWidget):
         self._capture(tl, pos, paths)
         self.move(tl)
         self.hover = -1
+        self.preferred_ring = ring
         self.got_drag = False
         self.click_mode = paths is not None
         early = []
@@ -229,7 +232,7 @@ class RadialMenu(QWidget):
         self.paths = paths
         self.rings = {k: v for k, v in self.build_rings(paths).items() if v}
         self.ring_names = list(self.rings)
-        self.ring_idx = 0
+        self.ring_idx = self.ring_names.index(self.preferred_ring) if self.preferred_ring in self.ring_names else 0
         self.hub_text = self.describe(paths)
         for items in self.rings.values():
             self._render(len(items))
@@ -262,6 +265,14 @@ class RadialMenu(QWidget):
             self.spring = [0.0] * len(self.items)
             self._swap = 0.0
             self.swap_anim.start()
+            self._shape()
+            self.update()
+
+    def select_ring(self, name: str):
+        if name in self.ring_names and self.ring_idx != self.ring_names.index(name):
+            self.ring_idx = self.ring_names.index(name)
+            self.hover = -1
+            self.spring = [0.0] * len(self.items)
             self._shape()
             self.update()
 
@@ -500,10 +511,12 @@ class RadialMenu(QWidget):
         if hov is not None:
             top, sub = hov.label if not hov.glyph else hov.label.title(), hov.hint or ""
         else:
-            ring_name = self.ring_names[self.ring_idx] if self.ring_names else ""
+            raw_name = self.ring_names[self.ring_idx] if self.ring_names else ""
+            ring_name = RING_LABELS.get(raw_name, raw_name)
             top = self.hub_text
             if len(self.ring_names) > 1:
-                other = self.ring_names[(self.ring_idx + 1) % len(self.ring_names)]
+                raw_other = self.ring_names[(self.ring_idx + 1) % len(self.ring_names)]
+                other = RING_LABELS.get(raw_other, raw_other)
                 sub = f"Shift · {other}"
             else:
                 sub = ring_name

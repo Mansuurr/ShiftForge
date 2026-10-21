@@ -8,7 +8,7 @@ import sys
 
 
 def ipc_name() -> str:
-    return "DragShift-" + (os.environ.get("USERNAME") or os.environ.get("USER") or "user")
+    return "ShiftForge-" + (os.environ.get("USERNAME") or os.environ.get("USER") or "user")
 
 
 def try_handoff(argv: list[str]) -> bool:

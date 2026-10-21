@@ -188,6 +188,6 @@ def test_cancel_cleanup_batch_rollback_and_unique_outputs(sound, tmp_path):
     try:
         a = audio.convert_audio(sound, "WAV")[0]
         b = audio.convert_audio(sound, "WAV")[0]
-        assert a != b and a.parent.name == "DragShift"
+        assert a != b and a.parent.name == "ShiftForge"
     finally:
         CONFIG["output"] = "next"

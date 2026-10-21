@@ -11,14 +11,16 @@ import sys
 from PySide6.QtCore import QObject, QPoint, QTimer, Signal
 from PySide6.QtGui import QCursor
 
-VK_LBUTTON, VK_SHIFT, VK_ESCAPE = 0x01, 0x10, 0x1B
+VK_LBUTTON, VK_SHIFT, VK_CONTROL, VK_ESCAPE = 0x01, 0x10, 0x11, 0x1B
 DRAG_THRESHOLD = 10   # px the mouse must travel with the button held
 NO_DRAG_TIMEOUT = 50  # ticks (≈ 0.75 s) to wait for a file drag to enter before hiding
 
 
 class DragShiftWatcher(QObject):
     show_menu = Signal(QPoint)
+    show_tools = Signal(QPoint)
     toggle_ring = Signal()
+    tools_ring = Signal()
     hide_menu = Signal()
 
     def __init__(self, menu_visible, menu_got_drag, parent=None):
@@ -30,6 +32,7 @@ class DragShiftWatcher(QObject):
         self.key_name = "shift"
         self._down_at: QPoint | None = None
         self._shift_was = False
+        self._ctrl_was = False
         self._fired = False
         self._idle_ticks = 0
         self._shown_at = QPoint()
@@ -64,12 +67,15 @@ class DragShiftWatcher(QObject):
 
     def _tick(self):
         lbtn, shift, esc = self._state()
+        ctrl = self._down(VK_CONTROL) if self._user32 is not None and self.key_name == "shift" else False
         pos = QCursor.pos()
 
         if self.menu_visible():
             if not lbtn or esc:
                 # drop happened (or was cancelled) – give the drop event a moment to land
                 QTimer.singleShot(120, self.hide_menu.emit)
+            elif ctrl and not self._ctrl_was and self.menu_got_drag():
+                self.tools_ring.emit()        # Ctrl always jumps straight to quick actions
             elif shift and not self._shift_was and self.menu_got_drag():
                 self.toggle_ring.emit()       # tap Shift again to flip Convert ⇄ Tools
             elif not self.menu_got_drag() and (pos - self._shown_at).manhattanLength() > 6:
@@ -84,12 +90,13 @@ class DragShiftWatcher(QObject):
                     self._down_at = pos
                     self._fired = False
                 moved = (pos - self._down_at).manhattanLength() >= DRAG_THRESHOLD
-                if self.enabled and moved and shift and not self._fired:
+                if self.enabled and moved and (shift or ctrl) and not self._fired:
                     self._fired = True
                     self._idle_ticks = 0
                     self._shown_at = pos
-                    self.show_menu.emit(pos)
+                    (self.show_tools if ctrl and not shift else self.show_menu).emit(pos)
             else:
                 self._down_at = None
                 self._fired = False
         self._shift_was = shift
+        self._ctrl_was = ctrl

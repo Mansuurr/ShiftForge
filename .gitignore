@@ -6,6 +6,9 @@ dist/
 .pytest_cache/
 .venv/
 bin/
+.engine-cache/
+engine-downloads/
+tools/
 e2e_*_out/
 # Local project knowledge and verification memory
 graphify-out/

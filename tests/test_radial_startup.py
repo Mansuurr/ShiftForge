@@ -53,7 +53,7 @@ def test_launch_with_files_still_routes_to_radial(controller, monkeypatch):
 
 def test_tray_only_opens_the_control_menu(controller, monkeypatch):
     labels = [action.text() for action in controller.tray_menu.actions()]
-    assert "Settings…" in labels
+    assert "Настройки…" in labels
     assert not any("file" in label.lower() or "converter" in label.lower() for label in labels)
     calls = []
     monkeypatch.setattr(controller.tray_menu, "popup", lambda pos: calls.append(pos))

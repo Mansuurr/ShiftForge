@@ -58,13 +58,13 @@ def test_pack_empty_folder_with_suffix_and_unique_output(tmp_path, mode, engine)
     a = archives.pack([folder], 'ZIP')[0]
     b = archives.pack([folder], 'ZIP')[0]
     assert a != b and a.name == 'project.v1.zip'
-    assert a.parent == (tmp_path / 'DragShift' if mode == 'folder' else tmp_path)
+    assert a.parent == (tmp_path / 'ShiftForge' if mode == 'folder' else tmp_path)
     assert (archives.extract(a)[0] / folder.name).is_dir()
     assert list(folder.iterdir()) == []
 
 
 def test_output_subfolder_never_places_archive_inside_selected_folder(tmp_path, engine):
-    folder = tmp_path / 'DragShift'
+    folder = tmp_path / 'ShiftForge'
     folder.mkdir()
     (folder / 'keep.txt').write_bytes(b'keep')
     CONFIG['output'] = 'folder'

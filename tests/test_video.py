@@ -97,7 +97,7 @@ def test_cancel_cleanup_and_output_folder(clip, tmp_path):
     try:
         a = video.convert_video(clip, "MP4")[0]
         b = video.convert_video(clip, "MP4")[0]
-        assert a.parent.name == "DragShift" and a != b
+        assert a.parent.name == "ShiftForge" and a != b
     finally:
         CONFIG["output"] = "next"
     bad = tmp_path / "broken.mp4"
@@ -201,7 +201,7 @@ def test_batch_directory_failure_rolls_back(tmp_path, monkeypatch, output_mode):
     a, b = tmp_path / "a.7z", tmp_path / "b.7z"
     a.write_bytes(b"original A")
     b.write_bytes(b"original B")
-    out = (tmp_path / "DragShift" if output_mode == "folder" else tmp_path) / "extracted"
+    out = (tmp_path / "ShiftForge" if output_mode == "folder" else tmp_path) / "extracted"
     def extract(path):
         if path == b:
             raise UserError("archive B failed")

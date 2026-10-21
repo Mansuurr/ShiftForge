@@ -47,7 +47,7 @@ def executable() -> str:
     found = shutil.which("7z") or shutil.which("7zz")
     if found:
         return found
-    raise UserError("7-Zip was not found. Install 7-Zip, set DRAGSHIFT_7Z, or put 7z.exe in DragShift/bin.")
+    raise UserError("7-Zip не найден. Установите 7-Zip или поместите 7z.exe в ShiftForge/bin.")
 
 
 def _source(src) -> Path:
@@ -280,8 +280,8 @@ def packing_sources(paths) -> list[Path]:
 def packing_directory(sources: list[Path]) -> Path:
     directory = sources[0].parent
     if CONFIG.get("output") == "folder":
-        candidate = directory / "DragShift"
-        # A selected folder may itself be called DragShift. Keep its output outside.
+        candidate = directory / "ShiftForge"
+        # A selected folder may itself be called ShiftForge. Keep its output outside.
         if not any(p.is_dir() and candidate.resolve().is_relative_to(p.resolve()) for p in sources):
             directory = candidate
     return directory

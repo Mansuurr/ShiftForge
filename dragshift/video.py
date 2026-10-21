@@ -79,7 +79,7 @@ def executable(name: str) -> str:
     if found:
         return found
     package = "FFglitch (ffgac and ffedit)" if name in ("ffgac", "ffedit") else "FFmpeg (ffmpeg and ffprobe)"
-    raise UserError(f"{name} was not found. Install {package} and add its bin folder to PATH, or put it in DragShift/bin.")
+    raise UserError(f"{name} was not found. Install {package} or put it in ShiftForge/bin.")
 
 
 def local_file(src) -> Path:
@@ -423,7 +423,7 @@ def batch(paths, fn) -> list[Path]:
             inputs = {Path(path).resolve() for path in paths}
             permitted_parents = {path.parent for path in inputs}
             if CONFIG.get("output") == "folder":
-                permitted_parents |= {path.parent / "DragShift" for path in inputs}
+                permitted_parents |= {path.parent / "ShiftForge" for path in inputs}
             for out in outs:
                 with contextlib.suppress(Exception):
                     path = Path(out)

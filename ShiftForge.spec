@@ -12,9 +12,13 @@ engine_datas = [(str(p), "bin") for p in Path("bin").glob("*") if p.name in engi
 
 a = Analysis(
     ["run.py"],
-    datas=[("dragshift/assets", "dragshift/assets"), ("THIRD_PARTY.md", "."), ("LICENSE", ".")] + heif_datas + engine_datas,
+    datas=[("dragshift/assets", "dragshift/assets"), ("THIRD_PARTY.md", "."),
+           ("NOTICE.md", "."), ("LICENSE", ".")] + heif_datas + engine_datas,
     binaries=heif_bins,
-    hiddenimports=["win32com.client", "PySide6.QtNetwork", "AppKit", "Quartz", "objc"] + heif_hidden,
+    hiddenimports=["win32com.client", "PySide6.QtNetwork", "AppKit", "Quartz", "objc",
+                   "winrt.windows.foundation", "winrt.windows.storage", "winrt.windows.storage.streams",
+                   "winrt.windows.graphics.imaging", "winrt.windows.media.ocr",
+                   "winrt.windows.globalization"] + heif_hidden,
     excludes=["tkinter", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.QtQml",
               "PySide6.QtQuick", "PySide6.Qt3DCore", "PySide6.QtMultimedia", "PySide6.QtCharts",
               "PySide6.QtDataVisualization", "PySide6.QtPdf", "pandas", "yaml", "PySide6.QtSql", "PySide6.QtTest",
@@ -37,28 +41,28 @@ a.datas = [d for d in a.datas if "translations" not in d[0].replace("\\", "/")]
 
 pyz = PYZ(a.pure)
 IS_MAC = sys.platform == "darwin"
-common = dict(name="DragShift", console=os.environ.get("DS_CONSOLE") == "1", upx=False)
+common = dict(name="ShiftForge", console=os.environ.get("SF_CONSOLE") == "1", upx=False)
 IS_LINUX = sys.platform.startswith("linux")
 if IS_MAC:
     common.update(icon="dragshift/assets/dragshift.icns")
 elif IS_LINUX:
-    common.update(name="dragshift")       # icon comes from the .desktop file / hicolor theme
+    common.update(name="shiftforge")       # icon comes from the .desktop file / hicolor theme
 else:
     common.update(icon="dragshift/assets/dragshift.ico", version="installer/version_info.txt")
 
 if IS_MAC:
     exe = EXE(pyz, a.scripts, [], exclude_binaries=True, argv_emulation=False, **common)
-    coll = COLLECT(exe, a.binaries, a.datas, name="DragShift", upx=False)
+    coll = COLLECT(exe, a.binaries, a.datas, name="ShiftForge", upx=False)
     app = BUNDLE(
         coll,
-        name="DragShift.app",
+        name="ShiftForge.app",
         icon="dragshift/assets/dragshift.icns",
-        bundle_identifier="com.dragshift.app",
+        bundle_identifier="app.shiftforge.desktop",
         info_plist={
-            "CFBundleName": "DragShift",
-            "CFBundleDisplayName": "DragShift",
-            "CFBundleShortVersionString": "1.1.0",
-            "CFBundleVersion": "1.1.0",
+            "CFBundleName": "ShiftForge",
+            "CFBundleDisplayName": "ShiftForge",
+            "CFBundleShortVersionString": "1.0.0",
+            "CFBundleVersion": "1.0.0",
             "LSUIElement": True,                 # menu-bar app, no Dock icon
             "LSMinimumSystemVersion": "11.0",
             "NSHighResolutionCapable": True,
@@ -74,9 +78,9 @@ if IS_MAC:
     )
 elif IS_LINUX:
     exe = EXE(pyz, a.scripts, [], exclude_binaries=True, **common)
-    coll = COLLECT(exe, a.binaries, a.datas, name="dragshift", upx=False)  # no strip: breaks OpenBLAS with Debian 12 binutils
+    coll = COLLECT(exe, a.binaries, a.datas, name="shiftforge", upx=False)  # no strip: breaks OpenBLAS with Debian 12 binutils
 elif onefile:
     exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], **common)
 else:
     exe = EXE(pyz, a.scripts, [], exclude_binaries=True, **common)
-    coll = COLLECT(exe, a.binaries, a.datas, name="DragShift", upx=False)
+    coll = COLLECT(exe, a.binaries, a.datas, name="ShiftForge", upx=False)

@@ -166,7 +166,7 @@ def test_output_folder_and_collision(tmp_path):
     CONFIG["output"] = "folder"
     first = archives.convert_archive(source, "ZIP")[0]
     second = archives.convert_archive(source, "ZIP")[0]
-    assert first.parent.name == "DragShift" and first != second
+    assert first.parent.name == "ShiftForge" and first != second
     assert first.is_file() and second.is_file()
     # Extraction always creates a new sibling directory, independent of export settings.
     assert archives.extract(source)[0].parent == tmp_path

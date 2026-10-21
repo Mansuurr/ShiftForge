@@ -8,21 +8,22 @@ import time
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QPointF, QRunnable, Qt, QThreadPool, QTimer, QUrl, Signal
-from PySide6.QtGui import (QAction, QColor, QCursor, QDesktopServices, QGuiApplication, QIcon, QPainter,
+from PySide6.QtCore import QObject, QPointF, QRunnable, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtGui import (QAction, QColor, QCursor, QGuiApplication, QIcon, QPainter,
                            QPixmap)
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
-from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QWidget
+from PySide6.QtWidgets import QApplication, QFileDialog, QMenu, QSystemTrayIcon, QWidget
 
 from . import __version__, convert, glass, imaging, report, tools, video
 from .radial import Item, RadialMenu
 from .settings import Settings, SettingsWindow, WelcomeWindow, TRIGGERS
+from .presets import PresetsWindow, for_category as presets_for_category
 from .toasts import ToastStack
 from .trigger import DragShiftWatcher
 from .util import UserError, category, file_size, human_size, keep, release
+from .watchfolders import WatchFolderManager, WatchFoldersWindow
 
-APP_NAME = "DragShift"
-TIP_URL = "https://cash.app/$AtikaKadesha"
+APP_NAME = "ShiftForge"
 VERSION = __version__
 IS_WIN = sys.platform == "win32"
 IS_MAC = sys.platform == "darwin"
@@ -31,21 +32,21 @@ IPC_NAME = ipc_name()
 
 GLYPHS = {"Compress": "⇲", "Metadata": "ⓘ", "Redact": "▮", "Crop": "⌗", "Edit": "☼",
           "Annotate": "✎", "Add BG": "▣", "Resize": "⤢", "Split": "✂", "Rotate": "⟳",
-          "Merge": "⧉", "Protect": "⚿", "Extract": "⧈"}
+          "Merge": "⧉", "Protect": "⚿", "Extract": "⧈", "OCR": "⌕"}
 
 HINTS = {
     "Compress": "Shrink file size", "Metadata": "View · remove GPS", "Redact": "Hide private info",
     "Crop": "Trim to a ratio", "Edit": "Light · colour · rotate", "Annotate": "Arrows · text · steps",
     "Add BG": "Gradient backdrop", "Resize": "Change dimensions", "Split": "One PDF per page",
     "Rotate": "Turn pages 90°", "Merge": "Join into one PDF", "Protect": "Add a password",
-    "Extract": "Save embedded images",
+    "Extract": "Save embedded images", "OCR": "Распознать текст → TXT",
 }
 FORMAT_HINTS = {"JPG": "Small, universal", "PNG": "Lossless · transparency", "WEBP": "Smallest for web",
                 "HEIC": "iPhone format", "TIFF": "Print · archival", "AVIF": "Next-gen, tiny",
                 "BMP": "Uncompressed", "PDF": "Document", "ICO": "Windows icon", "GIF": "Legacy web",
                 "DOCX": "Editable Word", "TXT": "Plain text"}
 
-IMAGE_TOOLS = ["Compress", "Resize", "Crop", "Edit", "Annotate", "Redact", "Add BG", "Metadata"]
+IMAGE_TOOLS = ["Compress", "Resize", "Crop", "Edit", "Annotate", "Redact", "Add BG", "OCR", "Metadata"]
 PDF_TOOLS = ["Compress", "Split", "Rotate", "Protect", "Extract", "Metadata"]
 VIDEO_TOOLS = ["Trim", "Compress", "Resize", "Edit", "Mute", "Frame", "Metadata", "Datamosh", "Audio"]
 VIDEO_GLYPHS = {"Trim": "✂", "Mute": "♪", "Frame": "▣", "Datamosh": "≈", "Audio": "♫"}
@@ -160,9 +161,14 @@ class DragShiftApp(QObject):
                                         lambda: self.menu.got_drag, self)
         self.watcher.set_key(self.settings.get("trigger"))
         self.watcher.show_menu.connect(lambda pos: self.menu.popup(pos))
+        self.watcher.show_tools.connect(lambda pos: self.menu.popup(pos, ring="Tools"))
         self.watcher.toggle_ring.connect(self.menu.next_ring)
+        self.watcher.tools_ring.connect(lambda: self.menu.select_ring("Tools"))
         self.watcher.hide_menu.connect(self.menu.close_menu)
         self.watcher.start()
+
+        self.magic = WatchFolderManager(self.settings, self)
+        self.magic.convert_requested.connect(self._watch_convert)
 
         # files handed over by "Send to", the right-click menu, or a second launch
         self._pending: list[str] = []
@@ -176,15 +182,17 @@ class DragShiftApp(QObject):
         self.tray.setToolTip(f"{APP_NAME} — press {self.trigger_label()} while dragging a file")
         m = QMenu()
         m.setStyleSheet(glass.QSS)
-        self.act_enabled = QAction("Enabled", m, checkable=True, checked=True)
+        self.act_enabled = QAction("ShiftForge включён", m, checkable=True, checked=True)
         self.act_enabled.toggled.connect(lambda on: setattr(self.watcher, "enabled", on))
         m.addAction(self.act_enabled)
         m.addSeparator()
-        m.addAction("Settings…", self.open_settings)
-        m.addAction("How to use", self.show_welcome)
-        m.addAction("Tip the developer ♥", lambda: QDesktopServices.openUrl(QUrl(TIP_URL)))
+        m.addAction("Открыть файл…", self.open_files)
+        m.addAction("Волшебные папки…", self.open_magic_folders)
+        m.addAction("Пресеты форматов…", self.open_presets)
+        m.addAction("Настройки…", self.open_settings)
+        m.addAction("Как пользоваться", self.show_welcome)
         m.addSeparator()
-        m.addAction(f"Quit {APP_NAME}", self.qapp.quit)
+        m.addAction(f"Выйти из {APP_NAME}", self.qapp.quit)
         self.tray_menu = m
         self.tray.setContextMenu(m)
         self.tray.activated.connect(self._tray_click)
@@ -243,9 +251,9 @@ class DragShiftApp(QObject):
     # ------------------------------------------------------------ menu contents
     def describe(self, paths: list[str]) -> str:
         if len(paths) > 1:
-            return f"{len(paths)} items"
+            return f"Файлов: {len(paths)}"
         if Path(paths[0]).is_dir():
-            return "Folder"
+            return "Папка"
         return human_size(file_size(paths[0]))
 
     def build_rings(self, paths: list[str]) -> dict[str, list[Item]]:
@@ -281,6 +289,11 @@ class DragShiftApp(QObject):
             rings["Tools"] = [Item("Extract", "⇩", key="tool:Extract archive", hint="Unpack to a new folder"),
                                Item("Contents", "ⓘ", key="tool:Contents", hint="View files inside")]
         rings.setdefault("Tools", []).append(pack)
+        settings = getattr(self, "settings", None) or Settings()
+        preset_items = [Item(p["name"], "★", key=f"preset:{p['target']}", hint=f"Создать {p['target']}")
+                        for p in presets_for_category(settings, cat, [item.label for item in convert_items])]
+        if preset_items:
+            rings["Presets"] = preset_items
         return rings
 
     # ------------------------------------------------------------ actions
@@ -292,7 +305,7 @@ class DragShiftApp(QObject):
         cat = category(paths[0])
         paths = [p for p in paths if category(p) == cat]
         kind, name = item.key.split(":", 1)
-        if kind == "convert":
+        if kind in ("convert", "preset"):
             if cat in ("video", "audio", "archive"):
                 self.submit(f"convert:{name}", paths,
                             lambda: video.batch(paths, lambda p: convert.convert(p, cat, name)), f"Converting to {name}…")
@@ -347,6 +360,10 @@ class DragShiftApp(QObject):
                 self.open_window(tools.CompressWindow(paths, self.notify))
             elif name == "Resize":
                 self.open_window(tools.ResizeWindow(paths, self.notify))
+            elif name == "OCR":
+                from .ocr import extract_text
+                self.submit("tool:OCR", paths, lambda: [o for p in paths for o in extract_text(p)],
+                            "Распознаю текст…")
             else:
                 self.open_window(windows[name](paths[0], self.notify))
         except UserError as e:
@@ -415,7 +432,7 @@ class DragShiftApp(QObject):
             self.tray_menu.popup(QCursor.pos())
 
     def show_ready(self):
-        self.toasts.info("DragShift is running", f"Drag a file, then press {self.trigger_label()}.")
+        self.toasts.info("ShiftForge работает", f"Перетащите файл и нажмите {self.trigger_label()}.")
 
     def startup(self, files, *, quiet=False):
         """Stay in the tray until a file is dragged or explicitly handed over."""
@@ -433,10 +450,34 @@ class DragShiftApp(QObject):
     def open_settings(self):
         w = SettingsWindow(self.settings)
         w.changed.connect(self._settings_changed)
+        w.magic_requested.connect(self.open_magic_folders)
+        w.presets_requested.connect(self.open_presets)
         self.open_window(w)
+
+    def open_magic_folders(self):
+        w = WatchFoldersWindow(self.settings)
+        w.changed.connect(self.magic.reload)
+        self.open_window(w)
+
+    def open_presets(self):
+        self.open_window(PresetsWindow(self.settings))
+
+    def open_files(self):
+        paths, _ = QFileDialog.getOpenFileNames(None, "Выберите файлы для ShiftForge")
+        if paths:
+            self.show_click_menu(paths)
+
+    def _watch_convert(self, path: str, target: str):
+        cat = category(path)
+        if cat is None or target not in convert.targets_for(cat, Path(path).suffix):
+            self.toasts.error("Волшебная папка", f"Формат {target} не подходит для {Path(path).name}")
+            return
+        self.submit(f"convert:{target}", [path], lambda: convert.convert(path, cat, target),
+                    f"Волшебная папка → {target}…")
 
     def _settings_changed(self):
         self.watcher.set_key(self.settings.get("trigger"))
+        self.magic.reload()
         self.tray.setToolTip(f"{APP_NAME} — press {self.trigger_label()} while dragging a file")
 
     def show_welcome(self):
@@ -486,18 +527,18 @@ def send_to_running(payload: dict) -> bool:
 
 
 def setup_logging():
-    """Errors go to %LOCALAPPDATA%\\DragShift\\log.txt (pythonw / the .exe have no console)."""
+    """Errors go to %LOCALAPPDATA%\\ShiftForge\\log.txt."""
     import faulthandler
     if IS_MAC:
-        base = Path.home() / "Library" / "Logs" / "DragShift"
+        base = Path.home() / "Library" / "Logs" / "ShiftForge"
     else:
-        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".local" / "share") / "DragShift"
+        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".local" / "share") / "ShiftForge"
     base.mkdir(parents=True, exist_ok=True)
     path = base / "log.txt"
     if path.exists() and path.stat().st_size > 1_000_000:
         path.replace(base / "log.old.txt")
     f = open(path, "a", encoding="utf-8", buffering=1)
-    f.write(f"\n==== DragShift {VERSION} started {time.strftime('%Y-%m-%d %H:%M:%S')} ====\n")
+    f.write(f"\n==== ShiftForge {VERSION} started {time.strftime('%Y-%m-%d %H:%M:%S')} ====\n")
     if sys.stderr is None or getattr(sys, "frozen", False) or sys.executable.lower().endswith("pythonw.exe"):
         sys.stdout = sys.stderr = f
     faulthandler.enable(f)
@@ -517,7 +558,7 @@ def main(argv: list[str] | None = None) -> int:
     if IS_WIN:
         try:  # crisp taskbar/tray icon grouping
             import ctypes
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("DragShift.App")
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ShiftForge.App")
         except Exception:
             pass
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
@@ -570,7 +611,7 @@ def check_text_renders():
 def selftest() -> int:
     """Used by CI on the frozen .exe: exercise every library and build the UI, then exit."""
     import tempfile
-    from PIL import Image
+    from PIL import Image, ImageDraw, ImageFont
     try:
         with tempfile.TemporaryDirectory() as d:
             src = Path(d) / "t.png"
@@ -586,6 +627,16 @@ def selftest() -> int:
             imaging.add_background(convert.open_image(src), imaging.Background())
             imaging.compress_pdf(pdf)
             imaging.protect_pdf(pdf, "pw")
+            if IS_WIN:
+                from .ocr import extract_text
+                ocr_source = Path(d) / "ocr.png"
+                ocr_image = Image.new("RGB", (700, 170), "white")
+                ocr_font = ImageFont.truetype(r"C:\Windows\Fonts\arial.ttf", 54)
+                ImageDraw.Draw(ocr_image).text((25, 45), "HELLO 123", fill="black", font=ocr_font)
+                ocr_image.save(ocr_source)
+                recognized = extract_text(ocr_source)[0].read_text(encoding="utf-8").upper()
+                if "HELLO" not in recognized or "123" not in recognized:
+                    raise RuntimeError("Windows OCR self-test failed")
             from . import liquid
             liquid.render(Image.new("RGB", (80, 80)), liquid.sdf_circle(80, 80, 40, 40, 30))
             menu = RadialMenu(lambda p: {"Convert": [Item("PNG")]}, lambda p: "1 KB")

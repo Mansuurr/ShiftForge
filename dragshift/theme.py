@@ -1,18 +1,22 @@
-"""Quiet native typography and neutral surfaces shared by DragShift windows."""
+"""Shared light and dark palettes for ShiftForge windows."""
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-PANEL = "#fbfbfa"
-TEXT = "#252724"
-MUTED = "#4f514d"
-BORDER = "#e2e3de"
-HOVER = "#eeefeb"
-SELECTED = "#e6e8e2"
-ACCENT = TEXT
-GOOD = "#3e5742"
-ERROR = "#774943"
+_LIGHT = {
+    "PANEL": "#fbfbfa", "TEXT": "#252724", "MUTED": "#4f514d",
+    "BORDER": "#e2e3de", "HOVER": "#eeefeb", "SELECTED": "#e6e8e2",
+    "ACCENT": "#252724", "GOOD": "#3e5742", "ERROR": "#774943",
+}
+_DARK = {
+    "PANEL": "#171918", "TEXT": "#f1f3ef", "MUTED": "#b5bab2",
+    "BORDER": "#393d39", "HOVER": "#272a27", "SELECTED": "#343834",
+    "ACCENT": "#dce6d8", "GOOD": "#9ac8a2", "ERROR": "#e7a09a",
+}
+
+MODE = "light"
+globals().update(_LIGHT)
 
 _QSS = f"""
 * {{ color: {TEXT}; font-family: "@FONT@"; font-size: 10pt;
@@ -121,6 +125,14 @@ QMenu::separator {{ height: 1px; background: {BORDER}; margin: 4px 6px; }}
 """
 
 
+def set_mode(mode: str) -> str:
+    """Select a palette before importing UI modules. Returns the normalized mode."""
+    global MODE
+    MODE = "dark" if str(mode).lower() == "dark" else "light"
+    globals().update(_DARK if MODE == "dark" else _LIGHT)
+    return MODE
+
+
 def qss() -> str:
     """Resolve the system font after QApplication is available."""
     if sys.platform == "win32":
@@ -129,7 +141,15 @@ def qss() -> str:
         from PySide6.QtGui import QFontDatabase
         family = QFontDatabase.systemFont(QFontDatabase.GeneralFont).family()
     assets = Path(__file__).with_name("assets").as_posix()
-    return _QSS.replace("@FONT@", family).replace("@ASSETS@", assets)
+    sheet = _QSS
+    if MODE == "dark":
+        # The template is authored from the light palette. Replacing complete
+        # colour tokens keeps both modes in lockstep without two giant stylesheets.
+        for key, light in _LIGHT.items():
+            sheet = sheet.replace(light, _DARK[key])
+        sheet = sheet.replace("#ffffff", "#222522")
+        sheet = sheet.replace("#3d403b", "#4c554b").replace("#181a17", "#111311")
+    return sheet.replace("@FONT@", family).replace("@ASSETS@", assets)
 
 
 def __getattr__(name):
