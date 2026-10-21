@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
 
 from . import video
-from .util import UserError
+from .util import CONFIG, UserError
 
 TARGETS = ["ZIP", "7Z", "TAR"]
 INPUT_EXTENSIONS = {".zip", ".7z", ".rar", ".tar"}
@@ -152,7 +152,7 @@ def _run(args, **kwargs):
     except video.Cancelled:
         raise
     except UserError as error:
-        raise UserError("Archive processing failed. The original archive is unchanged.\n" + str(error).split("\n", 1)[-1]) from error
+        raise UserError("Archive processing failed. Original files are unchanged.\n" + str(error).split("\n", 1)[-1]) from error
 
 
 def _audit(folder: Path, members: list[ArchiveEntry]):
@@ -243,3 +243,126 @@ def convert_archive(src, target: str) -> list[Path]:
             _run(args + ["--", str(temporary), "*"], cwd=folder,
                  message=f"Packing archive as {target}…", offset=.5, span=.45)
     return outputs
+
+
+def _pack_stat(path: Path):
+    info = path.lstat()
+    if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+        raise UserError("Links and junctions cannot be packed. Select the original files or folders.")
+    if not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
+        raise UserError("Only regular files and folders can be packed.")
+    return info
+
+
+def packing_sources(paths) -> list[Path]:
+    """Deduplicate selections and omit children already covered by a selected parent."""
+    video.check_cancel()
+    sources = list(dict.fromkeys(Path(os.path.abspath(p)) for p in paths))
+    if not sources:
+        raise UserError("Select at least one file or folder to pack.")
+    if len(sources) > MAX_ENTRIES:
+        raise UserError("Too many selected items to pack.")
+    folders = set()
+    try:
+        for source in sources:
+            video.check_cancel()
+            if stat.S_ISDIR(_pack_stat(source).st_mode):
+                folders.add(source)
+    except OSError as error:
+        raise UserError("A selected file or folder is missing or cannot be read. Choose it again.") from error
+    sources = [p for p in sources if not any(parent in folders for parent in p.parents)]
+    names = [_safe_name(p.name).casefold() for p in sources]
+    if len(names) != len(set(names)):
+        raise UserError("Selected items have the same name. Rename them or pack their parent folders instead.")
+    return sources
+
+
+def packing_directory(sources: list[Path]) -> Path:
+    directory = sources[0].parent
+    if CONFIG.get("output") == "folder":
+        candidate = directory / "DragShift"
+        # A selected folder may itself be called DragShift. Keep its output outside.
+        if not any(p.is_dir() and candidate.resolve().is_relative_to(p.resolve()) for p in sources):
+            directory = candidate
+    return directory
+
+
+def pack(paths, target: str = "ZIP") -> list[Path]:
+    """Copy a selected group into an isolated tree, then create one new ZIP/7Z."""
+    target = target.upper()
+    if target not in ("ZIP", "7Z"):
+        raise UserError("Unsupported archive format. Choose ZIP or 7Z.")
+    sources = packing_sources(paths)
+    engine = executable()
+    members = []
+    seen = set()
+    total = 0
+    pending = [(p, p.name) for p in reversed(sources)]
+    try:
+        while pending:
+            video.check_cancel()
+            path, name = pending.pop()
+            name = _safe_name(name)
+            key = name.casefold()
+            if key in seen:
+                raise UserError("The selected folders contain colliding file names.")
+            seen.add(key)
+            info = _pack_stat(path)
+            is_dir = stat.S_ISDIR(info.st_mode)
+            members.append((path, name, is_dir, info))
+            if is_dir:
+                children = sorted(path.iterdir(), key=lambda p: p.name.casefold(), reverse=True)
+                pending.extend((child, name + '/' + child.name) for child in children)
+            else:
+                total += info.st_size
+            if len(members) + len(pending) > MAX_ENTRIES or total > MAX_EXTRACTED_BYTES:
+                raise UserError("The selection is too large to pack (limit: 100,000 items and 20 GB).")
+
+        # Beside a top-level source means the staging tree cannot be inside a selected folder.
+        with tempfile.TemporaryDirectory(prefix=".~pack-", dir=sources[0].parent) as workspace:
+            staged = Path(workspace)
+            copied = 0
+            for path, name, is_dir, info in members:
+                video.check_cancel()
+                video.progress(.5 * copied / max(1, total), "Preparing files…")
+                destination = staged / name
+                if is_dir:
+                    destination.mkdir(parents=True, exist_ok=True)
+                else:
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    current = _pack_stat(path)
+                    if (current.st_size, current.st_mtime_ns) != (info.st_size, info.st_mtime_ns):
+                        raise UserError("A selected file changed while preparing the archive. Try again.")
+                    with path.open('rb') as source, destination.open('xb') as output:
+                        while chunk := source.read(1024 * 1024):
+                            video.check_cancel()
+                            output.write(chunk)
+                            copied += len(chunk)
+                            if copied > total:
+                                raise UserError("A selected file changed while preparing the archive. Try again.")
+                            video.progress(.5 * copied / max(1, total), "Preparing files…")
+                    current = _pack_stat(path)
+                    if (current.st_size, current.st_mtime_ns) != (info.st_size, info.st_mtime_ns):
+                        raise UserError("A selected file changed while preparing the archive. Try again.")
+                    shutil.copystat(path, destination, follow_symlinks=False)
+            # Restore directory dates only after their children have been created.
+            for path, name, is_dir, _ in reversed(members):
+                if is_dir:
+                    video.check_cancel()
+                    shutil.copystat(path, staged / name, follow_symlinks=False)
+            _audit(staged, [ArchiveEntry(name, info.st_size if not is_dir else 0, is_dir)
+                            for _, name, is_dir, info in members])
+            video.check_cancel()
+            directory = packing_directory(sources)
+            directory.mkdir(exist_ok=True)
+            first = sources[0]
+            anchor = first.with_name(first.name + '.pack') if first.is_dir() else first
+            label = 'Archive' if len(sources) > 1 else ''
+            with video.export_path(anchor, label, '.' + target.lower(), directory=directory) as (temporary, outputs):
+                temporary.unlink()
+                _run([engine, 'a', '-t' + target.lower(), '-y', '-bd', '-bb0', '-sccUTF-8',
+                      '-mx=5', '--', str(temporary), '*'], cwd=staged,
+                     message=f"Packing archive as {target}…", offset=.5, span=.5)
+        return outputs
+    except OSError as error:
+        raise UserError("Couldn't pack the selected files. Check access and free disk space. Originals are unchanged.") from error

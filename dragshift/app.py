@@ -243,13 +243,16 @@ class DragShiftApp(QObject):
     # ------------------------------------------------------------ menu contents
     def describe(self, paths: list[str]) -> str:
         if len(paths) > 1:
-            return f"{len(paths)} files"
+            return f"{len(paths)} items"
+        if Path(paths[0]).is_dir():
+            return "Folder"
         return human_size(file_size(paths[0]))
 
     def build_rings(self, paths: list[str]) -> dict[str, list[Item]]:
-        cat = category(paths[0])
+        pack = Item("Pack", "▣", key="tool:Pack", hint="Create one ZIP or 7Z archive")
+        cat = None if Path(paths[0]).is_dir() else category(paths[0])
         if cat is None:
-            return {"Unsupported": []}
+            return {"Tools": [pack]}
         ext = Path(paths[0]).suffix
         same = [p for p in paths if category(p) == cat]
         convert_items = []
@@ -277,10 +280,15 @@ class DragShiftApp(QObject):
         elif cat == "archive":
             rings["Tools"] = [Item("Extract", "⇩", key="tool:Extract archive", hint="Unpack to a new folder"),
                                Item("Contents", "ⓘ", key="tool:Contents", hint="View files inside")]
+        rings.setdefault("Tools", []).append(pack)
         return rings
 
     # ------------------------------------------------------------ actions
     def run_item(self, item: Item, paths: list[str]):
+        if item.key == "tool:Pack":
+            from .archive_tools import ArchivePackWindow
+            self.open_window(ArchivePackWindow(paths, self.notify))
+            return
         cat = category(paths[0])
         paths = [p for p in paths if category(p) == cat]
         kind, name = item.key.split(":", 1)
@@ -364,7 +372,7 @@ class DragShiftApp(QObject):
 
     def submit(self, action: str, srcs: list, fn, working: str = "Working…", extra: str = ""):
         """Run in the background. A spinner card appears only if it takes > 150 ms."""
-        if any(category(p) in ("video", "audio", "archive") for p in srcs):
+        if action == "tool:Pack" or any(category(p) in ("video", "audio", "archive") for p in srcs):
             from .video_tools import VideoProgressWindow
             window = VideoProgressWindow(action, srcs, fn, lambda r: self.toasts.new().done(r), extra)
             self.open_window(window)

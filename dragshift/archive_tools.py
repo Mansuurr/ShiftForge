@@ -1,9 +1,49 @@
 """Inspect archive members without extracting or opening their files."""
-from PySide6.QtWidgets import QHeaderView, QPushButton, QTableWidget, QTableWidgetItem
+from PySide6.QtWidgets import (QComboBox, QFormLayout, QHeaderView, QLabel, QListWidget,
+                               QPushButton, QTableWidget, QTableWidgetItem)
 
 from . import archives
-from .util import human_size
+from .util import human_size, UserError
 from .video_tools import _AsyncTools
+
+
+class ArchivePackWindow(_AsyncTools):
+    tool_name = "Pack"
+
+    def __init__(self, paths, notify):
+        super().__init__("Pack files", paths, notify, (600, 460))
+        self.subtitle.setText(f"{len(self.paths)} selected item(s) · one archive")
+        selected = QListWidget()
+        selected.setAccessibleName("Selected files and folders")
+        for path in self.paths[:100]:
+            selected.addItem(str(path) + ('/' if path.is_dir() else ''))
+        if len(self.paths) > 100:
+            selected.addItem(f"… and {len(self.paths) - 100} more items")
+        self.body.addWidget(selected, 1)
+        form = QFormLayout()
+        self.target = QComboBox()
+        self.target.addItems(['ZIP', '7Z'])
+        self.target.setAccessibleName("Archive format")
+        form.addRow("&Format", self.target)
+        self.body.addLayout(form)
+        self.destination = QLabel()
+        self.destination.setWordWrap(True)
+        self.destination.setObjectName('dim')
+        self.body.addWidget(self.destination)
+        self.body.addWidget(self.error)
+        self.body.addLayout(self.footer("Create archive", self.save))
+        try:
+            sources = archives.packing_sources(self.paths)
+            archives.executable()
+            self.destination.setText("Save to: " + str(archives.packing_directory(sources)) +
+                                     "\nExisting files are kept. Folders keep their structure.")
+        except UserError as error:
+            self.error.setText(str(error))
+            self.primary_btn.setEnabled(False)
+
+    def save(self):
+        paths, target = list(self.paths), self.target.currentText()
+        self.run(lambda: archives.pack(paths, target), f"Creating {target} archive…")
 
 
 class ArchiveContentsWindow(_AsyncTools):

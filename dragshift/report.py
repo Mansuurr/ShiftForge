@@ -71,6 +71,9 @@ def summarize(action: str, srcs: list, outs: list, extra: str = "") -> Result:
     o0 = outs[0]
     good = ""
 
+    if action == "tool:Pack":
+        return Result("Archive created", f"{o0.name} · {human_size(after)}", outs, srcs)
+
     if category(src) == "audio" or (category(src) == "video" and category(o0) == "audio"):
         from . import audio, video
         try:

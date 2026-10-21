@@ -229,8 +229,12 @@ def ffmpeg_args(name="ffmpeg") -> list[str]:
 
 
 @contextlib.contextmanager
-def export_path(src, label: str = "", ext: str = ".mp4"):
-    out = sibling(src, label, ext)
+def export_path(src, label: str = "", ext: str = ".mp4", *, directory: Path | None = None):
+    if directory is None:
+        out = sibling(src, label, ext)
+    else:
+        stem = f"{Path(src).stem} {label}".strip() if label else Path(src).stem
+        out = unique_path(Path(directory) / (stem + ext))
     fd, name = tempfile.mkstemp(prefix=".~video-", suffix=ext, dir=out.parent)
     os.close(fd)
     tmp = Path(name)

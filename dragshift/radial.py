@@ -116,7 +116,6 @@ class RadialMenu(QWidget):
         self.liquid: dict[int, QImage] = {}
         self._serial = 0
         self.got_drag = False
-        self.hub_armed = False
         self.click_mode = False  # opened from tray/menu instead of a drag
         self._t = 1.0            # pop-in animation 0..1
         self._swap = 1.0         # ring-swap animation 0..1
@@ -129,7 +128,6 @@ class RadialMenu(QWidget):
         self.swap_anim = QVariantAnimation(self, startValue=0.0, endValue=1.0, duration=220,
                                            easingCurve=QEasingCurve.OutCubic)
         self.swap_anim.valueChanged.connect(self._set_swap)
-        self.hub_timer = QTimer(self, singleShot=True, interval=420, timeout=self.next_ring)
         self.frame = QTimer(self, interval=16, timeout=self._tick)   # 60 fps springs
 
     # ------------------------------------------------------------ show / hide
@@ -146,7 +144,6 @@ class RadialMenu(QWidget):
         self.move(tl)
         self.hover = -1
         self.got_drag = False
-        self.hub_armed = False  # drags start on the hub; don't flip until they leave it
         self.click_mode = paths is not None
         early = []
         if paths is None and sys.platform == "darwin":
@@ -177,7 +174,6 @@ class RadialMenu(QWidget):
         if self.isVisible():
             self.hide()
             self.frame.stop()
-            self.hub_timer.stop()
             self.dismissed.emit()
 
     def hideEvent(self, e):
@@ -326,12 +322,6 @@ class RadialMenu(QWidget):
             self.cursor_pos = QPointF(pos)
         if h != self.hover:
             self.hover = h
-            if h >= 0:
-                self.hub_armed = True  # visited a petal: hovering the hub may now flip rings
-            if h == -2 and self.hub_armed and len(self.ring_names) > 1:
-                self.hub_timer.start()
-            else:
-                self.hub_timer.stop()
         self.update()
 
     # ------------------------------------------------------------ drag & drop
@@ -398,7 +388,10 @@ class RadialMenu(QWidget):
     def keyPressEvent(self, e):
         if e.key() == Qt.Key_Escape:
             self.close_menu()
-        elif e.key() in (Qt.Key_Tab, Qt.Key_Shift):
+        elif (not e.isAutoRepeat() and
+              (e.key() == Qt.Key_Tab or e.key() == Qt.Key_Shift and self.click_mode)):
+            # The global watcher owns Shift during a drag. Handling it here too
+            # can switch twice if a platform also delivers a widget key event.
             self.next_ring()
 
     def leaveEvent(self, e):
