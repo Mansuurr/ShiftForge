@@ -357,6 +357,16 @@ def targets_for(cat: str, src_ext: str) -> list[str]:
     src_ext = src_ext.lower().lstrip(".")
     same = {"jpeg": "JPG", "jpg": "JPG", "tif": "TIFF", "tiff": "TIFF", "heif": "HEIC"}
     cur = same.get(src_ext, src_ext.upper())
+    if cat == "audio":
+        from .audio import TARGETS
+        cur = {"AIF": "AIFF", "OGA": "OGG", "M4B": "M4A"}.get(cur, cur)
+        return [t for t in TARGETS if t != cur]
+    if cat == "archive":
+        from .archives import TARGETS
+        return [t for t in TARGETS if t != cur]
+    if cat == "video":
+        from .video import TARGETS
+        return [t for t in TARGETS if t != cur]
     if cat == "image":
         t = [x for x in IMAGE_TARGETS if x != cur]
         if not HEIF_OK:
@@ -367,6 +377,15 @@ def targets_for(cat: str, src_ext: str) -> list[str]:
 
 def convert(src: str | Path, cat: str, target: str) -> list[Path]:
     target = target.upper()
+    if cat == "audio":
+        from .audio import convert_audio
+        return convert_audio(src, target)
+    if cat == "archive":
+        from .archives import convert_archive
+        return convert_archive(src, target)
+    if cat == "video":
+        from .video import convert_video
+        return convert_video(src, target)
     if cat == "image":
         return image_to(src, target)
     if cat == "pdf":

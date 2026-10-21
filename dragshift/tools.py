@@ -1155,7 +1155,7 @@ class CompressWindow(ToolWindow):
             col = QVBoxLayout()
             lab.setFixedSize(270, 170)
             lab.setAlignment(Qt.AlignCenter)
-            lab.setStyleSheet("border-radius: 12px; background: rgba(0,0,0,0.25);")
+            lab.setStyleSheet("border-radius: 6px; background: #eeefeb;")
             c = QLabel(cap)
             c.setObjectName("dim")
             col.addWidget(lab)

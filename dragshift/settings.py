@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QGridLayout, QHBoxLayout, Q
 
 from . import __version__
 from .util import CONFIG
+from .theme import HOVER, TEXT
 from .window import GlassWindow
 
 IS_WIN = sys.platform == "win32"
@@ -165,14 +166,6 @@ class SettingsWindow(GlassWindow):
             self.auto.toggled.connect(set_autostart)
             grid.addWidget(self.auto, r, 1)
             r += 1
-        if IS_MAC:
-            from . import platform_mac
-            if not platform_mac.has_screen_recording():
-                glass_btn = QPushButton("Enable full liquid glass…")
-                glass_btn.setToolTip("Lets the glass refract the windows behind it (Screen Recording permission)")
-                glass_btn.clicked.connect(platform_mac.request_screen_recording)
-                grid.addWidget(glass_btn, r, 1)
-                r += 1
         self.body.addLayout(grid)
         self.body.addStretch(1)
         about = QLabel(f"DragShift {__version__}  ·  originals are never modified")
@@ -198,7 +191,7 @@ class WelcomeWindow(GlassWindow):
         steps = [
             ("1", "Start dragging any file", "in Finder or on the desktop" if IS_MAC else
              "in your file manager (Thunar, Nautilus…)" if IS_LINUX else "in File Explorer or on the desktop"),
-            ("2", f"Press {trigger_label}", "the glass menu opens right under your cursor"),
+            ("2", f"Press {trigger_label}", "the quick menu opens under your cursor"),
             ("3", "Drop it on a slice", "the result is saved next to the original"),
             ("⇄", f"Tap {trigger_label} again", "to switch between Convert and Tools"),
         ]
@@ -207,8 +200,8 @@ class WelcomeWindow(GlassWindow):
             badge = QLabel(n)
             badge.setAlignment(Qt.AlignCenter)
             badge.setFixedSize(34, 34)
-            badge.setStyleSheet("background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #5ac8ff, stop:1 #2f7bff);"
-                                "border-radius: 17px; font-weight: 700; font-size: 12pt;")
+            badge.setStyleSheet(f"background: {HOVER}; color: {TEXT};"
+                                "border-radius: 6px; font-weight: 600; font-size: 11pt;")
             row.addWidget(badge)
             col = QVBoxLayout()
             col.setSpacing(0)
@@ -222,17 +215,6 @@ class WelcomeWindow(GlassWindow):
             row.addLayout(col, 1)
             self.body.addLayout(row)
         self.body.addStretch(1)
-        if IS_MAC:
-            from . import platform_mac
-            if not platform_mac.has_screen_recording():
-                note = QLabel("Optional: allow Screen Recording so the glass can refract the windows "
-                              "behind it (otherwise it shows your wallpaper). DragShift never saves or sends it.")
-                note.setObjectName("dim")
-                note.setWordWrap(True)
-                self.body.addWidget(note)
-                b = QPushButton("Allow Screen Recording…")
-                b.clicked.connect(platform_mac.request_screen_recording)
-                self.body.addWidget(b, 0, Qt.AlignLeft)
         if IS_LINUX:
             from . import platform_linux
             if platform_linux.is_wayland():
